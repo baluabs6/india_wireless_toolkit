@@ -49,15 +49,18 @@ news_scraper:
     - "tower"
   sqlite_db_path: "news_archive.db"
   dummy_data_path: "data/press_releases_sample.json"
-  alert_webhook_url: ""      # e.g. Slack incoming webhook URL, leave blank to disable
+  # Secret-shaped values below are intentionally left blank here and are
+  # never meant to be filled in in this file. Set them via environment
+  # variables instead (copy .env.example -> .env). See config_loader.py.
+  alert_webhook_url: ""      # env override: ALERT_WEBHOOK_URL
   alert_email:
     enabled: false
-    smtp_host: ""
-    smtp_port: 587
-    from_addr: ""
-    to_addr: ""
-    smtp_user: ""
-    smtp_password: ""
+    smtp_host: ""            # env override: SMTP_HOST
+    smtp_port: 587           # env override: SMTP_PORT
+    from_addr: ""            # env override: SMTP_FROM_ADDR
+    to_addr: ""              # env override: SMTP_TO_ADDR
+    smtp_user: ""            # env override: SMTP_USER
+    smtp_password: ""        # env override: SMTP_PASSWORD
 
 paths:
   charts_dir: "charts"

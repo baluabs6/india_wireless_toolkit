@@ -1,5 +1,18 @@
 # india-wireless-toolkit (v2)
 
+## Security notes
+
+- `config.yaml` is tracked in git and contains **no secrets** — SMTP
+  credentials and the alert webhook URL are always blank there.
+- Real values go in a local `.env` file (copy `.env.example` -> `.env`),
+  which is gitignored and read automatically by `config_loader.py`.
+- A `pre-commit` hook (`detect-secrets`) is set up to block commits that
+  introduce anything that looks like a credential. One-time setup:
+  ```bash
+  pip install pre-commit detect-secrets
+  pre-commit install
+  ```
+
 Scripts covering current issues in India's wireless/telecom sector:
 satcom spectrum delays, the 6 GHz Wi-Fi vs 5G/6G band split, last-mile
 fibre duplication economics, and tracking TRAI/DoT/PIB press releases —
