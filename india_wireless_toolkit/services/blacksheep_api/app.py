@@ -62,8 +62,8 @@ async def news_load_dummy():
     reliable path when live scraping isn't reachable (e.g. network-
     restricted containers)."""
     items = await _run_blocking(news.load_dummy_dataset)
-    new_count = await _run_blocking(news.store_items, items)
-    return json_response({"fetched": len(items), "newly_stored": new_count})
+    new_items = await _run_blocking(news.store_items, items)
+    return json_response({"fetched": len(items), "newly_stored": len(new_items)})
 
 
 @post("/news/scrape")
@@ -73,8 +73,8 @@ async def news_scrape():
     items = await _run_blocking(news.run_live_scraper)
     if not items:
         items = await _run_blocking(news.load_dummy_dataset)
-    new_count = await _run_blocking(news.store_items, items)
-    return json_response({"fetched": len(items), "newly_stored": new_count})
+    new_items = await _run_blocking(news.store_items, items)
+    return json_response({"fetched": len(items), "newly_stored": len(new_items)})
 
 
 @post("/news/rss")
@@ -83,9 +83,58 @@ async def news_rss(request):
     feed_urls = (body or {}).get("feeds", [])
     if not feed_urls:
         return json_response({"error": "Provide a JSON body: {\"feeds\": [\"<rss url>\", ...]}"}, status=400)
-    items = await _run_blocking(news.run_rss_scraper, feed_urls)
-    new_count = await _run_blocking(news.store_items, items)
-    return json_response({"fetched": len(items), "newly_stored": new_count})
+
+    # --- Secure coding: this endpoint makes server-side HTTP requests to
+    # caller-supplied URLs, which is an SSRF vector if left unchecked.
+    # Enforce an allowlisted scheme, cap the batch size, and reject
+    # obvious loopback/link-local/internal hostnames before fetching.
+    if len(feed_urls) > 10:
+        return json_response({"error": "Too many feeds in one request (max 10)."}, status=400)
+
+    safe_urls, rejected = [], []
+    for url in feed_urls:
+        if _is_safe_feed_url(url):
+            safe_urls.append(url)
+        else:
+            rejected.append(url)
+
+    if not safe_urls:
+        return json_response({"error": "No valid feed URLs. Must be http(s) URLs to a public host.",
+                               "rejected": rejected}, status=400)
+
+    items = await _run_blocking(news.run_rss_scraper, safe_urls)
+    new_items = await _run_blocking(news.store_items, items)
+    response = {"fetched": len(items), "newly_stored": len(new_items)}
+    if rejected:
+        response["rejected_urls"] = rejected
+    return json_response(response)
+
+
+def _is_safe_feed_url(url: str) -> bool:
+    """Best-effort SSRF guard for the /news/rss endpoint: only allow
+    http(s) URLs with a real hostname that isn't localhost/loopback,
+    link-local, or a bare IP literal (which are the common ways to reach
+    internal services from a server-side fetch)."""
+    import ipaddress
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return False
+
+    host = parsed.hostname.lower()
+    if host in ("localhost",) or host.endswith(".local"):
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            return False
+    except ValueError:
+        pass  # not an IP literal, it's a hostname — fine
+    return True
 
 
 @get("/news/trend")

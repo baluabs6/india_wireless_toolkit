@@ -19,7 +19,7 @@ from functools import partial
 
 from sanic import Sanic
 from sanic.response import json as json_response, file as file_response
-from sanic.exceptions import NotFound
+from sanic.exceptions import NotFound, InvalidUsage
 
 from india_wireless_toolkit import data_visualization as dv
 from india_wireless_toolkit import spectrum_simulation as spec
@@ -45,6 +45,22 @@ async def _run_blocking(func, *args, **kwargs):
     block Sanic's event loop."""
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, partial(func, *args, **kwargs))
+
+
+def _bounded_int(request, name: str, default: int, lo: int, hi: int) -> int:
+    """Parses an integer query param and clamps it to [lo, hi]. The
+    Monte Carlo simulation and channel-capacity endpoints are CPU-bound
+    (O(n_aps^2 * n_trials)) and unauthenticated, so unbounded values from
+    a caller-supplied query string are a resource-exhaustion (DoS) risk —
+    this keeps every request's cost predictable regardless of input."""
+    raw = request.args.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise InvalidUsage(f"'{name}' must be an integer.")
+    return max(lo, min(hi, value))
 
 
 @app.get("/health")
@@ -77,9 +93,14 @@ async def dashboard(request):
     return await file_response(out_path, mime_type="text/html")
 
 
+_ALLOWED_MAP_METRICS = {"urban_teledensity_pct", "rural_teledensity_pct", "coverage_5g_pct"}
+
+
 @app.get("/charts/map")
 async def state_map(request):
     metric = request.args.get("metric", "coverage_5g_pct")
+    if metric not in _ALLOWED_MAP_METRICS:
+        raise InvalidUsage(f"Unknown metric '{metric}'. Valid options: {sorted(_ALLOWED_MAP_METRICS)}.")
     out_path = os.path.join(CHARTS_DIR, "state_map.html")
     await _run_blocking(dv.build_state_bubble_map, out_path, metric)
     return await file_response(out_path, mime_type="text/html")
@@ -103,7 +124,11 @@ async def spectrum_scenarios(request):
 
 @app.get("/spectrum/sinr")
 async def spectrum_sinr(request):
-    tx_power = float(request.args.get("tx_power_dbm", 20.0))
+    try:
+        tx_power = float(request.args.get("tx_power_dbm", 20.0))
+    except (TypeError, ValueError):
+        raise InvalidUsage("'tx_power_dbm' must be a number.")
+    tx_power = max(-10.0, min(40.0, tx_power))  # realistic Wi-Fi tx-power range
     distances = [2, 5, 10, 15, 20, 30]
     rows = []
     for d in distances:
@@ -121,9 +146,9 @@ async def spectrum_sinr(request):
 
 @app.get("/spectrum/montecarlo")
 async def spectrum_montecarlo(request):
-    mhz = int(request.args.get("mhz", 500))
-    aps = int(request.args.get("aps", 20))
-    trials = int(request.args.get("trials", 300))
+    mhz = _bounded_int(request, "mhz", 500, 20, 2000)
+    aps = _bounded_int(request, "aps", 20, 1, 100)
+    trials = _bounded_int(request, "trials", 300, 1, 2000)
     result = await _run_blocking(spec.monte_carlo_ap_simulation, mhz, n_aps=aps, n_trials=trials)
     return json_response(result)
 
@@ -148,8 +173,8 @@ async def spectrum_thz(request):
 
 @app.get("/spectrum/whatif")
 async def spectrum_whatif(request):
-    mhz = int(request.args.get("mhz", 800))
-    aps = int(request.args.get("aps", 20))
+    mhz = _bounded_int(request, "mhz", 800, 20, 2000)
+    aps = _bounded_int(request, "aps", 20, 1, 100)
     scenario = spec.SpectrumScenario(f"What-if: {mhz} MHz delicensed", mhz)
     capacity_rows = await _run_blocking(spec.simulate_scenario, scenario)
     monte_carlo = await _run_blocking(spec.monte_carlo_ap_simulation, mhz, n_aps=aps, n_trials=200)

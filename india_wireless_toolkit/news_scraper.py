@@ -85,8 +85,13 @@ def _record_id(title: str, url: str) -> str:
 
 
 def store_items(items: list, db_path: str = None):
+    """Inserts items into the archive, skipping ones already stored (dedup
+    on md5(title|url)). Returns the list of items that were *actually*
+    newly inserted this run (not just a count) so callers — e.g. alerting —
+    can act on the correct subset instead of assuming the first N items
+    of the input list were the new ones."""
     conn = init_db(db_path)
-    new_count = 0
+    newly_stored = []
     for item in items:
         rid = _record_id(item["title"], item["url"])
         try:
@@ -96,12 +101,12 @@ def store_items(items: list, db_path: str = None):
                 (rid, item.get("source", ""), item["title"], item["url"], item.get("date", ""),
                  json.dumps(item.get("keywords_matched", [])), time.strftime("%Y-%m-%d %H:%M:%S")),
             )
-            new_count += 1
+            newly_stored.append(item)
         except sqlite3.IntegrityError:
             pass  # already stored, skip (dedup)
     conn.commit()
     conn.close()
-    return new_count
+    return newly_stored
 
 
 def query_archive(limit: int = 50, db_path: str = None):
@@ -290,6 +295,8 @@ def main():
     args, _ = parser.parse_known_args()
 
     if args.trend:
+        if args.dummy or args.rss or args.alert:
+            print("  Note: --trend plots the existing archive and ignores --dummy/--rss/--alert this run.")
         keyword_trend_report()
         return
 
@@ -305,11 +312,10 @@ def main():
                   "Falling back to bundled dummy dataset so the rest of the pipeline still works.")
             items = load_dummy_dataset()
 
-    new_count = store_items(items)
-    print(f"\nStored {new_count} new item(s) (of {len(items)} fetched) into {DB_PATH}.")
+    new_items = store_items(items)
+    print(f"\nStored {len(new_items)} new item(s) (of {len(items)} fetched) into {DB_PATH}.")
 
-    if args.alert and new_count > 0:
-        new_items = items[:new_count]
+    if args.alert and new_items:
         send_slack_alert(new_items)
         send_email_alert(new_items)
 
