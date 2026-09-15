@@ -36,6 +36,16 @@ resource limits and restart cycles.
 - **Regulatory news tracking** — a TRAI/DoT/PIB press-release scraper
   with a persistent archive, RSS feed support, keyword-trend charts, and
   Slack/email alerting for new matches.
+- **Agentic AI assistant** (`india_wireless_toolkit/agent.py`) — ask a
+  plain-English question ("What if India released 700 MHz?", "Is shared
+  infra worth it with 3 ISPs?") and Claude autonomously chains the toolkit's
+  own analysis functions to ground its answer in real output instead of
+  guessing numbers. Available via `cli.py agent "<question>"` or
+  `POST /agent/ask` on the news/report API. Requires `pip install anthropic`
+  and an `ANTHROPIC_API_KEY` environment variable (never stored in
+  config.yaml). See the module docstring for the full safety design: a
+  fixed tool allowlist (no arbitrary code execution), clamped numeric
+  arguments, and a hard cap on tool-call turns per question.
 
 Both APIs ship with bundled dummy datasets, so every endpoint works fully
 offline out of the box — useful in network-restricted environments where

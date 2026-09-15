@@ -11,3 +11,8 @@ python-dotenv>=1.0
 sanic>=23.12
 blacksheep>=2.0
 uvicorn>=0.27
+
+# Agentic AI assistant (india_wireless_toolkit/agent.py) — optional, only
+# needed if you use `cli.py agent` or POST /agent/ask. Also requires an
+# ANTHROPIC_API_KEY environment variable at runtime.
+anthropic>=0.40

@@ -66,3 +66,12 @@ paths:
   charts_dir: "charts"
   data_dir: "data"
   reports_dir: "reports"
+
+agent:
+  # Agentic AI assistant (india_wireless_toolkit/agent.py). Requires
+  # `pip install anthropic` and an ANTHROPIC_API_KEY environment variable —
+  # never put the API key itself here. See india_wireless_toolkit/agent.py
+  # for the full tool allowlist and safety design.
+  model: "claude-sonnet-4-6"
+  max_turns: 6          # hard cap on tool-call round-trips per question
+  max_tokens: 1500       # per-response token limit

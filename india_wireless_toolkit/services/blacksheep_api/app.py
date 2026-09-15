@@ -21,6 +21,7 @@ from blacksheep.exceptions import NotFound
 
 from india_wireless_toolkit import news_scraper as news
 from india_wireless_toolkit import report_generator as report
+from india_wireless_toolkit import agent
 from india_wireless_toolkit.config_loader import CONFIG
 
 app = Application()
@@ -184,6 +185,41 @@ async def report_get():
     if not os.path.exists(out_path):
         out_path = await _run_blocking(report.generate_report)
     return await file_response(out_path, "text/html")
+
+
+# --- Agentic AI assistant ----------------------------------------------------
+# See india_wireless_toolkit/agent.py for the tool allowlist, argument
+# clamping, and turn-limit safeguards. Requires ANTHROPIC_API_KEY to be set
+# in the environment (never accepted from the request body).
+
+_AGENT_MAX_TURNS_CEILING = 10  # hard server-side ceiling, independent of what a caller requests
+
+
+@post("/agent/ask")
+async def agent_ask(request):
+    """Body: {"question": "...", "max_turns": 6 (optional, capped at 10)}."""
+    body = await request.json() if request.content else None
+    question = (body or {}).get("question", "").strip()
+    if not question:
+        return json_response({"error": "Provide a JSON body: {\"question\": \"...\"}"}, status=400)
+    if len(question) > 2000:
+        return json_response({"error": "Question too long (max 2000 characters)."}, status=400)
+
+    max_turns = (body or {}).get("max_turns")
+    try:
+        max_turns = min(_AGENT_MAX_TURNS_CEILING, max(1, int(max_turns))) if max_turns is not None else None
+    except (TypeError, ValueError):
+        max_turns = None
+
+    try:
+        result = await _run_blocking(agent.run_agent, question, max_turns=max_turns, verbose=False)
+    except RuntimeError as e:
+        # Missing API key / missing `anthropic` package — a config problem,
+        # not a caller error, but still safe to surface directly since the
+        # message never contains the key itself.
+        return json_response({"error": str(e)}, status=503)
+
+    return json_response(result)
 
 
 if __name__ == "__main__":
