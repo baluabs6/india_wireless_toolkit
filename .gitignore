@@ -1,0 +1,28 @@
+# --- Secrets / local overrides ---
+# config.yaml itself stays tracked (no secrets live in it - see below),
+# but local override files and .env are never committed.
+config.local.yaml
+.env
+.env.*
+*.pem
+*.key
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+build/
+dist/
+
+# --- Project runtime artifacts ---
+charts/
+reports/
+*.db
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+.idea/

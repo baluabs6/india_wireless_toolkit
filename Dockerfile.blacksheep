@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN mkdir -p charts reports
+
+EXPOSE 8002
+
+# Reads PORT from the environment (Azure Web App for Containers sets this
+# automatically); defaults to 8002 otherwise.
+CMD ["python", "-m", "india_wireless_toolkit.services.blacksheep_api.app"]

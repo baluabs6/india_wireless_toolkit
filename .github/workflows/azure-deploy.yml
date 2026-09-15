@@ -1,0 +1,55 @@
+name: Build and deploy to Azure
+
+# Builds both service images, pushes them to Azure Container Registry, and
+# restarts the two Azure Web Apps for Containers so they pull the new
+# images. Infrastructure itself (azure/main.bicep) is applied separately /
+# manually via `az deployment group create` — this workflow only handles
+# app code changes.
+#
+# Required repo secrets:
+#   AZURE_CREDENTIALS   - output of:
+#     az ad sp create-for-rbac --name "iwtoolkit-gha" --role contributor \
+#       --scopes /subscriptions/<sub-id>/resourceGroups/<rg> --sdk-auth
+#   ACR_LOGIN_SERVER     - e.g. iwtoolkitacrxxxxx.azurecr.io
+#   AZURE_RESOURCE_GROUP - e.g. india-wireless-rg
+#   AZURE_APP_PREFIX     - e.g. iwtoolkit (must match main.bicep's appNamePrefix)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: ACR login
+        run: az acr login --name "$(echo '${{ secrets.ACR_LOGIN_SERVER }}' | cut -d. -f1)"
+
+      - name: Build and push analytics-api (Sanic)
+        run: |
+          docker build -f Dockerfile.sanic -t "${{ secrets.ACR_LOGIN_SERVER }}/india-wireless-analytics-api:${{ github.sha }}" \
+                       -t "${{ secrets.ACR_LOGIN_SERVER }}/india-wireless-analytics-api:latest" .
+          docker push "${{ secrets.ACR_LOGIN_SERVER }}/india-wireless-analytics-api:${{ github.sha }}"
+          docker push "${{ secrets.ACR_LOGIN_SERVER }}/india-wireless-analytics-api:latest"
+
+      - name: Build and push news-api (Blacksheep)
+        run: |
+          docker build -f Dockerfile.blacksheep -t "${{ secrets.ACR_LOGIN_SERVER }}/india-wireless-news-api:${{ github.sha }}" \
+                       -t "${{ secrets.ACR_LOGIN_SERVER }}/india-wireless-news-api:latest" .
+          docker push "${{ secrets.ACR_LOGIN_SERVER }}/india-wireless-news-api:${{ github.sha }}"
+          docker push "${{ secrets.ACR_LOGIN_SERVER }}/india-wireless-news-api:latest"
+
+      - name: Restart Web Apps to pick up new images
+        run: |
+          az webapp restart --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_APP_PREFIX }}-analytics-api"
+          az webapp restart --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_APP_PREFIX }}-news-api"

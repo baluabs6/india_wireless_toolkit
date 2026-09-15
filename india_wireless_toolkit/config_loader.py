@@ -28,6 +28,12 @@ _ENV_OVERRIDES = {
     ("news_scraper", "alert_email", "to_addr"): "SMTP_TO_ADDR",
     ("news_scraper", "alert_email", "smtp_user"): "SMTP_USER",
     ("news_scraper", "alert_email", "smtp_password"): "SMTP_PASSWORD",
+    ("redis", "password"): "REDIS_PASSWORD",
+    ("redis", "ssl"): "REDIS_SSL",
+    # Azure File Share mount paths (containers are ephemeral, so charts/
+    # reports/news archive should live on persistent storage in Azure).
+    ("paths", "charts_dir"): "AZURE_CHARTS_DIR",
+    ("paths", "reports_dir"): "AZURE_REPORTS_DIR",
 }
 
 

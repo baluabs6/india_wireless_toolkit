@@ -13,6 +13,10 @@ setup(
         "pyyaml>=6.0",
         "plotly>=5.20",
         "feedparser>=6.0",
+        "python-dotenv>=1.0",
+        "sanic>=23.12",
+        "blacksheep>=2.0",
+        "uvicorn>=0.27",
     ],
     entry_points={
         "console_scripts": [

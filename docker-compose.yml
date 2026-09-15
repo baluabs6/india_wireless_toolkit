@@ -1,5 +1,10 @@
 version: "3.8"
 
+# Local development stack mirroring the Azure deployment topology:
+# two independently-deployable API services + Redis for caching.
+# In Azure, redis is replaced by Azure Cache for Redis (see azure/README.md)
+# and each API becomes its own Azure Web App for Containers.
+
 services:
   redis:
     image: redis:7-alpine
@@ -8,17 +13,40 @@ services:
     volumes:
       - redis_data:/data
 
-  toolkit:
-    build: .
+  analytics-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.sanic
+    ports:
+      - "8001:8001"
     depends_on:
       - redis
     environment:
       - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_SSL=false
+      - PORT=8001
+    volumes:
+      - ./charts:/app/charts
+      - ./data:/app/data
+
+  news-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.blacksheep
+    ports:
+      - "8002:8002"
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_SSL=false
+      - PORT=8002
     volumes:
       - ./charts:/app/charts
       - ./reports:/app/reports
       - ./news_archive.db:/app/news_archive.db
-    command: ["all"]
 
 volumes:
   redis_data:

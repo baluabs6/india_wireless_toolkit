@@ -28,15 +28,26 @@ from .config_loader import CONFIG
 
 
 class RedisCache:
-    def __init__(self, host=None, port=None, db=None, ttl=None, enabled=None):
+    def __init__(self, host=None, port=None, db=None, ttl=None, enabled=None,
+                 password=None, ssl=None):
         import os
         redis_cfg = CONFIG.get("redis", {})
-        # Environment variables (e.g. set by docker-compose) take precedence over config.yaml
+        # Environment variables (e.g. set by docker-compose or Azure App
+        # Settings) take precedence over config.yaml. Azure Cache for Redis
+        # requires TLS (port 6380) and an access-key password, so both are
+        # first-class here rather than bolted on.
         self.host = host or os.environ.get("REDIS_HOST") or redis_cfg.get("host", "localhost")
         self.port = int(port or os.environ.get("REDIS_PORT") or redis_cfg.get("port", 6379))
         self.db = db if db is not None else redis_cfg.get("db", 0)
         self.ttl = ttl or redis_cfg.get("ttl_seconds", 3600)
         self.enabled = enabled if enabled is not None else redis_cfg.get("enabled", True)
+        self.password = password or os.environ.get("REDIS_PASSWORD") or redis_cfg.get("password") or None
+        env_ssl = os.environ.get("REDIS_SSL")
+        self.ssl = (
+            ssl if ssl is not None
+            else (env_ssl.lower() in ("1", "true", "yes") if env_ssl is not None
+                  else redis_cfg.get("ssl", False))
+        )
         self._client = None
         self._connection_checked = False
         self._connection_ok = False
@@ -47,7 +58,8 @@ class RedisCache:
         if self._client is None:
             self._client = redis.Redis(
                 host=self.host, port=self.port, db=self.db,
-                socket_connect_timeout=1, socket_timeout=1,
+                password=self.password, ssl=self.ssl,
+                socket_connect_timeout=2, socket_timeout=2,
                 decode_responses=True,
             )
         if not self._connection_checked:

@@ -56,7 +56,7 @@ def _root_path(*parts):
     return os.path.join(root, *parts)
 
 
-DB_PATH = _root_path(_CFG.get("sqlite_db_path", "news_archive.db"))
+DB_PATH = os.environ.get("AZURE_NEWS_DB_PATH") or _root_path(_CFG.get("sqlite_db_path", "news_archive.db"))
 DUMMY_PATH = _root_path(_CFG.get("dummy_data_path", "data/press_releases_sample.json"))
 
 

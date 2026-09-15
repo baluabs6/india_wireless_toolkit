@@ -5,3 +5,6 @@ charts/
 reports/
 *.db
 *.egg-info/
+azure/
+.github/
+.env
