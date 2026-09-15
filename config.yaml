@@ -1,0 +1,65 @@
+# india_wireless_toolkit configuration
+# Override any value here instead of editing module code.
+
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0
+  ttl_seconds: 3600          # how long cached results are kept
+  enabled: true              # set false to always compute fresh, ignore Redis
+
+spectrum:
+  india_delicensed_mhz: 500
+  full_band_mhz: 1200
+  us_delicensed_mhz: 1200
+  thz_band_ghz_range: [100, 300]   # illustrative 6G terahertz pilot range
+
+infra_economics:
+  n_buildings: 1000
+  n_isps: 5
+  fibre_capex_per_building_inr: 25000
+  fwa_capex_per_building_inr: 6000
+  satellite_capex_per_building_inr: 15000
+  neutral_access_fee_per_building_per_year_inr: 2000
+  opex_per_building_per_year_inr: 1500
+  years: 5
+  discount_rate: 0.10        # for NPV calculations
+
+news_scraper:
+  sources:
+    TRAI: "https://www.trai.gov.in/notifications/press-release"
+    DoT: "https://dot.gov.in/relatedlinks/press-release"
+    PIB: "https://pib.gov.in/PressReleseDetail.aspx"
+  keywords:
+    - "spectrum"
+    - "6 ghz"
+    - "6ghz"
+    - "wi-fi"
+    - "wifi"
+    - "satcom"
+    - "satellite"
+    - "fixed wireless"
+    - "fwa"
+    - "right of way"
+    - "row"
+    - "5g"
+    - "6g"
+    - "wani"
+    - "broadband"
+    - "tower"
+  sqlite_db_path: "news_archive.db"
+  dummy_data_path: "data/press_releases_sample.json"
+  alert_webhook_url: ""      # e.g. Slack incoming webhook URL, leave blank to disable
+  alert_email:
+    enabled: false
+    smtp_host: ""
+    smtp_port: 587
+    from_addr: ""
+    to_addr: ""
+    smtp_user: ""
+    smtp_password: ""
+
+paths:
+  charts_dir: "charts"
+  data_dir: "data"
+  reports_dir: "reports"

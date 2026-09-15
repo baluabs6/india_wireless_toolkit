@@ -1,0 +1,7 @@
+parameter,base_value,unit,low_estimate,high_estimate
+fibre_capex_per_building_inr,25000,INR,18000,32000
+fwa_capex_per_building_inr,6000,INR,4500,8000
+satellite_capex_per_building_inr,15000,INR,12000,20000
+neutral_access_fee_per_building_per_year_inr,2000,INR,1500,2800
+opex_per_building_per_year_inr,1500,INR,1000,2200
+n_isps,5,count,3,8

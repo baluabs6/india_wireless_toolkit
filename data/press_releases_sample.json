@@ -1,0 +1,9 @@
+[
+  {"source": "TRAI", "title": "TRAI releases consultation paper on proliferation of public Wi-Fi hotspots", "url": "https://www.trai.gov.in/notifications/press-release/consultation-public-wifi-2026", "date": "2026-06-02", "keywords_matched": ["wi-fi", "public wifi"]},
+  {"source": "DoT", "title": "DoT notifies delicensing of lower 6 GHz band for Wi-Fi 6E and Wi-Fi 7", "url": "https://dot.gov.in/relatedlinks/press-release/6ghz-delicensing-2026", "date": "2026-01-20", "keywords_matched": ["6 ghz", "wi-fi"]},
+  {"source": "DoT", "title": "Government allocates provisional satcom spectrum, commercial launch delayed", "url": "https://dot.gov.in/relatedlinks/press-release/satcom-spectrum-provisional-2026", "date": "2026-03-15", "keywords_matched": ["satcom", "spectrum"]},
+  {"source": "TRAI", "title": "TRAI issues guidelines on Right of Way rules for faster tower installation", "url": "https://www.trai.gov.in/notifications/press-release/row-rules-2026", "date": "2026-02-10", "keywords_matched": ["right of way", "tower"]},
+  {"source": "DoT", "title": "5G now covers 99.9 percent of districts, says communications minister", "url": "https://dot.gov.in/relatedlinks/press-release/5g-coverage-sep-2026", "date": "2026-09-11", "keywords_matched": ["5g"]},
+  {"source": "TRAI", "title": "Consultation on Fixed Wireless Access as broadband delivery mechanism", "url": "https://www.trai.gov.in/notifications/press-release/fwa-consultation-2026", "date": "2026-04-22", "keywords_matched": ["fixed wireless", "fwa", "broadband"]},
+  {"source": "PIB", "title": "Cabinet approves spectrum roadmap for 6G innovation zones", "url": "https://pib.gov.in/press-release/6g-innovation-zones-2026", "date": "2026-02-28", "keywords_matched": ["6g", "spectrum"]}
+]
