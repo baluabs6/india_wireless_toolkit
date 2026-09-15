@@ -1,128 +1,133 @@
-# india-wireless-toolkit (v2)
+# india-wireless-toolkit
 
-## Security notes
+## About the Application
 
-- `config.yaml` is tracked in git and contains **no secrets** — SMTP
-  credentials and the alert webhook URL are always blank there.
-- Real values go in a local `.env` file (copy `.env.example` -> `.env`),
-  which is gitignored and read automatically by `config_loader.py`.
-- A `pre-commit` hook (`detect-secrets`) is set up to block commits that
-  introduce anything that looks like a credential. One-time setup:
-  ```bash
-  pip install pre-commit detect-secrets
-  pre-commit install
-  ```
+**india-wireless-toolkit** is a CLI-driven research toolkit for exploring
+current issues in India's wireless/telecom sector: satcom spectrum delays,
+the 6 GHz Wi-Fi vs 5G/6G band split, last-mile fibre duplication economics,
+and regulatory activity from TRAI, DoT, and PIB.
 
-Scripts covering current issues in India's wireless/telecom sector:
-satcom spectrum delays, the 6 GHz Wi-Fi vs 5G/6G band split, last-mile
-fibre duplication economics, and tracking TRAI/DoT/PIB press releases —
-now with Redis caching, dummy datasets, interactive dashboards, and more.
+It brings together four kinds of analysis under one command-line entry
+point:
 
-## Install
+- **Data visualization** — static charts (broadband split, teledensity
+  gap, 6 GHz split, public Wi-Fi gap), a subscriber-trend time series, an
+  interactive Plotly dashboard with a 6 GHz "what-if" slider, and a
+  state-wise bubble map.
+- **Spectrum simulation** — channel-capacity modeling, a log-distance
+  path-loss/SINR model, Monte Carlo AP-placement interference simulation,
+  illustrative 6G terahertz-band modeling, and custom "what-if" MHz
+  scenarios.
+- **Infrastructure economics** — duplicate vs. shared-neutral last-mile
+  cost modeling, NPV/IRR analysis, sensitivity/tornado charts, a
+  three-way FTTH vs. FWA vs. Satellite comparison, and break-even
+  ISP-count calculations.
+- **Regulatory news tracking** — a TRAI/DoT/PIB press-release scraper
+  with a persistent archive, RSS feed support, keyword-trend charts, and
+  Slack/email alerting for new matches.
 
-```bash
-pip install -r requirements.txt
-pip install -e .          # optional, for the `india-wireless-toolkit` CLI command
-```
+All results can be combined into a single shareable HTML report. The
+toolkit ships with bundled dummy datasets, so every module runs fully
+offline out of the box — useful in network-restricted environments where
+live scraping or external APIs aren't reachable.
 
-Redis is optional but recommended (used to cache slow simulations and news
-archive lookups). Everything falls back gracefully to "no cache" mode if
-Redis isn't running.
+## About the Stack of the Application
 
-```bash
-# Local Redis (Debian/Ubuntu)
-sudo apt-get install redis-server && redis-server --daemonize yes
-
-# Or via Docker (see docker-compose.yml below)
-docker compose up -d redis
-```
-
-## Run
-
-```bash
-python -m india_wireless_toolkit.cli all                 # run everything
-python -m india_wireless_toolkit.cli charts               # static charts -> ./charts/*.png
-python -m india_wireless_toolkit.cli charts --dashboard    # + interactive Plotly dashboard
-python -m india_wireless_toolkit.cli charts --map          # + state-wise bubble map
-python -m india_wireless_toolkit.cli charts --all-features # + dashboard + map
-
-python -m india_wireless_toolkit.cli spectrum                       # channel capacity + SINR + Monte Carlo + THz
-python -m india_wireless_toolkit.cli spectrum --whatif-mhz 800       # custom "what-if" MHz allocation
-python -m india_wireless_toolkit.cli spectrum --aps 30               # change AP density in stress tests
-python -m india_wireless_toolkit.cli spectrum --skip-montecarlo      # faster run, skips Monte Carlo
-
-python -m india_wireless_toolkit.cli infra                # base duplicate-vs-shared cost model
-python -m india_wireless_toolkit.cli infra --npv           # + NPV/IRR analysis
-python -m india_wireless_toolkit.cli infra --sensitivity   # + tornado/sensitivity chart
-python -m india_wireless_toolkit.cli infra --compare       # + FTTH vs FWA vs Satellite comparison
-python -m india_wireless_toolkit.cli infra --breakeven     # + break-even ISP count
-python -m india_wireless_toolkit.cli infra --all-features  # run all of the above
-
-python -m india_wireless_toolkit.cli news --dummy          # load bundled dummy dataset (works offline)
-python -m india_wireless_toolkit.cli news                  # live scrape (needs real internet + non-blocked IP)
-python -m india_wireless_toolkit.cli news --rss <url> ...   # scrape RSS feeds instead of HTML
-python -m india_wireless_toolkit.cli news --trend           # keyword trend chart from the SQLite archive
-python -m india_wireless_toolkit.cli news --alert           # send Slack/email alerts for new matches
-
-python -m india_wireless_toolkit.cli report                 # combined HTML report (charts + sims + news)
-```
-
-Or, after `pip install -e .`:
-```bash
-india-wireless-toolkit all
-```
-
-## Docker
-
-```bash
-docker compose up --build     # runs Redis + the toolkit together
-```
-
-`docker-compose.yml` wires `REDIS_HOST=redis` automatically so the app talks
-to the containerized Redis instance.
-
-## Tests
-
-```bash
-pip install pytest
-pytest tests/ -v
-```
-
-## Modules
-
-| Module | What it does |
+| Layer | Technology |
 |---|---|
-| `data_visualization.py` | Static charts (broadband split, teledensity gap, 6 GHz split, public Wi-Fi gap), a time-series subscriber trend chart, an interactive Plotly dashboard with a 6 GHz "what-if" slider, a state-wise bubble map, and a live-fetch hook for TRAI open data (needs real internet). |
-| `spectrum_simulation.py` | Channel capacity modeling, a log-distance path-loss/SINR model, Monte Carlo AP-placement interference simulation (Redis-cached), illustrative 6G terahertz-band modeling, and a `--whatif-mhz` custom scenario mode. |
-| `infra_economics.py` | Duplicate vs shared-neutral last-mile cost model, NPV/IRR analysis, sensitivity/tornado chart analysis, a three-way FTTH vs FWA vs Satellite comparison, and a break-even ISP-count calculator. |
-| `news_scraper.py` | TRAI/DoT/PIB press-release scraper with SQLite storage + dedup, RSS feed support, Slack/email alerting, a keyword-trend chart, and a bundled dummy dataset so the whole pipeline works offline. |
-| `report_generator.py` | Combines all charts, simulation output, and the news archive into one shareable HTML report. |
-| `db.py` | Redis caching layer (`@cached` decorator + `RedisCache` class). Falls back to "no cache" automatically if Redis is unreachable or disabled in `config.yaml`. |
-| `config_loader.py` | Loads `config.yaml` once and exposes it as `CONFIG`. |
+| Language | Python 3.11 |
+| CLI | `argparse` (`india_wireless_toolkit.cli`) |
+| Data analysis | `pandas`-free numeric modeling in pure Python, `matplotlib` for static charts, `plotly` for the interactive dashboard/map |
+| Web scraping | `requests` + `beautifulsoup4` for HTML scraping, `feedparser` for RSS |
+| Storage | `sqlite3` (bundled, no server) for the news archive |
+| Caching | `redis` (optional) for expensive simulation/lookup results, with automatic no-cache fallback |
+| Configuration | `PyYAML` (`config.yaml`) for tunable parameters, `python-dotenv` + environment variables for secrets |
+| Alerting | `smtplib`/email for SMTP alerts, `requests` for Slack incoming webhooks |
+| Testing | `pytest` |
+| Packaging | `setuptools` (`setup.py`), installable as an editable package with a `india-wireless-toolkit` console script |
+| Containerization | `Docker` + `docker-compose` (toolkit container + Redis container) |
+| Secret hygiene | `detect-secrets` via `pre-commit` |
 
-## Dummy datasets (`data/`)
+No database server, message queue, or external cloud service is required
+— Redis is the only optional infrastructure dependency, and everything
+degrades gracefully without it.
 
-| File | Contents |
-|---|---|
-| `subscriber_trends.csv` | Monthly wireless/wireline broadband subscriber counts and teledensity, Jan 2024–Apr 2026. |
-| `state_teledensity.csv` | 15 Indian states with urban/rural teledensity, 5G coverage %, and lat/lon for mapping. |
-| `press_releases_sample.json` | 7 sample TRAI/DoT/PIB press releases for offline testing of the news pipeline. |
-| `infra_cost_variables.csv` | Base/low/high estimates for each cost variable, used in sensitivity analysis. |
+## Architecture of the Application
 
-## Configuration (`config.yaml`)
+```
+                              ┌───────────────────────┐
+                              │   config.yaml + .env   │
+                              │  (config_loader.py)    │
+                              └───────────┬─────────────┘
+                                          │ CONFIG dict
+                                          ▼
+                        ┌─────────────────────────────────┐
+                        │   india_wireless_toolkit.cli     │
+                        │  (argparse command dispatcher)   │
+                        └───┬───────┬───────┬───────┬───────┘
+                            │       │       │       │
+             ┌──────────────┘  ┌────┘  ┌────┘  ┌────┘
+             ▼                 ▼       ▼        ▼
+   ┌───────────────┐ ┌───────────────┐ ┌───────────┐ ┌────────────────┐
+   │data_visualization│ │spectrum_    │ │infra_     │ │ news_scraper   │
+   │  .py             │ │simulation.py│ │economics.py│ │  .py           │
+   └────────┬──────────┘ └──────┬──────┘ └─────┬─────┘ └───────┬────────┘
+            │                   │              │               │
+            │ reads             │ cached via   │               │ HTML/RSS
+            ▼                   ▼              │               ▼
+   ┌──────────────┐    ┌────────────────┐      │      ┌──────────────────┐
+   │  data/*.csv   │    │   db.py        │      │      │ TRAI / DoT / PIB │
+   │ (dummy datasets)│  │ (Redis cache,  │      │      │  (live) or       │
+   └──────────────┘    │  graceful      │      │      │ press_releases_  │
+                        │  fallback)     │      │      │ sample.json      │
+                        └────────────────┘      │      └─────────┬─────────┘
+                                                 │                │ stores
+                                                 │                ▼
+                                                 │       ┌──────────────────┐
+                                                 │       │ news_archive.db  │
+                                                 │       │   (SQLite)       │
+                                                 │       └─────────┬─────────┘
+                                                 │                 │ alerts
+                                                 │                 ▼
+                                                 │       ┌──────────────────┐
+                                                 │       │ Slack webhook /  │
+                                                 │       │ SMTP email       │
+                                                 │       └──────────────────┘
+                            outputs from all modules
+                                       │
+                                       ▼
+                          ┌─────────────────────────┐
+                          │   report_generator.py    │
+                          │  (combines charts, sim    │
+                          │  results, news archive)   │
+                          └────────────┬──────────────┘
+                                       ▼
+                          ┌─────────────────────────┐
+                          │ reports/india_wireless_  │
+                          │      report.html         │
+                          └─────────────────────────┘
+```
 
-All tunable parameters — Redis connection, spectrum MHz assumptions, infra
-cost variables, news sources/keywords, alert webhooks — live in
-`config.yaml`. Edit it instead of touching module code.
+**Flow summary:**
 
-## Notes
-
-- Figures are based on publicly reported TRAI/DoT figures and industry
-  estimates as of 2026, or clearly-marked illustrative/dummy data — swap in
-  real datasets for production use.
-- `news_scraper.py`'s live HTML scraping may return 403s from government
-  sites depending on your IP/network — use `--dummy` or `--rss` as
-  reliable offline/alternative paths.
-- The SINR/path-loss and THz models are simplified engineering
-  approximations for illustration, not a substitute for a licensed RF
-  propagation study.
+1. `cli.py` parses the top-level command (`charts`, `spectrum`, `infra`,
+   `news`, `report`, or `all`) and dispatches to the matching module's
+   `main()`.
+2. Every module reads shared settings from `config_loader.CONFIG`, which
+   loads `config.yaml` and overlays secret-shaped values (SMTP
+   credentials, webhook URLs) from environment variables / `.env`.
+3. `data_visualization.py` and `infra_economics.py` read from the bundled
+   CSV datasets in `data/`; `spectrum_simulation.py` runs numeric models
+   directly, optionally caching expensive runs through `db.py`'s Redis
+   layer.
+4. `news_scraper.py` fetches TRAI/DoT/PIB press releases (live HTML, RSS,
+   or the bundled dummy JSON when offline), deduplicates and persists
+   them to `news_archive.db` (SQLite), and can fire Slack/email alerts
+   for new matches.
+5. Charts render to `charts/*.png`, the interactive dashboard/map render
+   via Plotly, and `report_generator.py` stitches chart images,
+   simulation output, and the news archive into one HTML file in
+   `reports/`.
+6. Docker Compose wires the toolkit container to an optional Redis
+   container for caching; without Docker, the same modules run directly
+   with `python -m india_wireless_toolkit.cli`.
