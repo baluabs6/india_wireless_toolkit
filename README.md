@@ -79,6 +79,75 @@ production (local container for dev).
 
 ## Architecture of the Application
 
+### Runtime architecture
+
+```mermaid
+flowchart TB
+    client["Client<br/>browser / curl / dashboards"]
+    cli["CLI (cli.py)<br/>local / offline use"]
+    cfg["config.yaml + .env<br/>Azure App Settings<br/>via config_loader.py"]
+
+    subgraph ANA["Analytics API - Sanic - Azure Web App 1"]
+        ana["/charts  /spectrum  /infra"]
+        anaMods["data_visualization<br/>spectrum_simulation<br/>infra_economics"]
+        ana --> anaMods
+    end
+
+    subgraph NEWS["News/Report API - Blacksheep - Azure Web App 2"]
+        news["/news  /report  /agent/ask"]
+        newsMods["news_scraper<br/>report_generator"]
+        agent["agent.py<br/>tool allowlist + turn cap"]
+        news --> newsMods
+        news --> agent
+        agent -->|tool calls| newsMods
+    end
+
+    redis[("Azure Cache for Redis<br/>TLS, via db.py")]
+    share[("Azure File Share<br/>/mnt/toolkit-data<br/>charts, reports, news_archive.db")]
+
+    subgraph EXT["Data sources and integrations"]
+        csv[/"data/*.csv<br/>bundled datasets"/]
+        gov["TRAI / DoT / PIB<br/>HTML + RSS"]
+        sample[/"press_releases_sample.json<br/>offline fallback"/]
+        alerts["Slack webhook<br/>SMTP email"]
+        anthropic["Anthropic API<br/>Claude"]
+    end
+
+    client -->|HTTP| ana
+    client -->|HTTP| news
+    cli -.->|imports| ANA
+    cli -.->|imports| NEWS
+    cfg -.-> ANA
+    cfg -.-> NEWS
+
+    anaMods --> csv
+    anaMods <--> redis
+    anaMods --> share
+
+    agent -->|tool calls| anaMods
+    agent <--> anthropic
+
+    newsMods --> gov
+    newsMods -.-> sample
+    newsMods --> alerts
+    newsMods --> share
+```
+
+### Build and deployment pipeline
+
+```mermaid
+flowchart LR
+    dev["Developer<br/>git push to main"] --> gha["GitHub Actions<br/>azure-deploy.yml"]
+    gha -->|docker build + push| acr["Azure Container Registry<br/>india-wireless-analytics-api<br/>india-wireless-news-api"]
+    gha -->|az webapp restart| apps["Azure Web Apps for Containers<br/>(one per service)"]
+    acr -->|pull latest image| apps
+    bicep["azure/main.bicep<br/>(applied separately via az deployment)"] -.->|provisions| infra["ACR, App Service Plan,<br/>Web Apps, Redis, Storage + File Share"]
+    infra -.-> apps
+```
+
+<details>
+<summary>ASCII version (for viewers without Mermaid support)</summary>
+
 ```
                               ┌───────────────────────┐
                               │   config.yaml + .env /  │
@@ -130,6 +199,8 @@ production (local container for dev).
                      └───────────────────────────────────┘
 ```
 
+</details>
+
 **Flow summary:**
 
 1. Each API loads shared settings from `config_loader.CONFIG`, which reads
@@ -159,3 +230,9 @@ production (local container for dev).
    Redis container (`REDIS_SSL=false`) so development doesn't require any
    Azure resources — the same code path just switches to
    `REDIS_SSL=true` and a managed Redis endpoint in Azure.
+7. The **agent** (`POST /agent/ask` on the News/Report API, or
+   `cli.py agent`) sends the question to the Anthropic API. Claude can
+   only request tools from a fixed allowlist in `agent.py`; the service
+   executes those toolkit functions (spectrum, infra economics, news
+   archive, charts) with clamped arguments and returns the results to
+   Claude, capped at a maximum number of turns per question.
