@@ -24,11 +24,20 @@ infra_economics:
   opex_per_building_per_year_inr: 1500
   years: 5
   discount_rate: 0.10        # for NPV calculations
+  # Economic life of each technology's capex. Used for the fibre's residual value
+  # in the NPV and for the asset-life-adjusted three-way comparison.
+  fibre_asset_life_years: 20
+  fwa_asset_life_years: 7
+  satellite_asset_life_years: 5
+  include_terminal_value: true   # count the fibre's remaining value at the end of the horizon
+  adoption_ramp: []              # e.g. [0.4, 0.7, 1.0] = share of lease revenue earned in years 1, 2, 3+
 
 news_scraper:
   sources:
     TRAI: "https://www.trai.gov.in/notifications/press-release"
     DoT: "https://dot.gov.in/relatedlinks/press-release"
+    # NOTE: PIB below is a press-release DETAIL page, not a listing, so it usually yields
+    # no useful links. Replace it with a PIB listing/RSS URL for the ministry you track.
     PIB: "https://pib.gov.in/PressReleseDetail.aspx"
   keywords:
     - "spectrum"
@@ -47,6 +56,9 @@ news_scraper:
     - "wani"
     - "broadband"
     - "tower"
+  max_items_per_source: 15
+  fetch_timeout_seconds: 15
+  fetch_max_bytes: 3000000
   sqlite_db_path: "news_archive.db"
   dummy_data_path: "data/press_releases_sample.json"
   # Secret-shaped values below are intentionally left blank here and are
@@ -61,6 +73,19 @@ news_scraper:
     to_addr: ""              # env override: SMTP_TO_ADDR
     smtp_user: ""            # env override: SMTP_USER
     smtp_password: ""        # env override: SMTP_PASSWORD
+
+visualization:
+  plotly_js: "cdn"           # "cdn" (needs internet when opening the dashboard) or "inline" (offline, ~3 MB)
+
+api:
+  # Requests per minute per caller for matching path prefixes (longest prefix wins).
+  # Authentication: set API_KEY (and API_REQUIRE_KEY=true) in the environment.
+  rate_limits:
+    default: 120
+    /agent/: 10
+    /report/generate: 5
+    /news/scrape: 5
+    /news/alert: 5
 
 paths:
   charts_dir: "charts"

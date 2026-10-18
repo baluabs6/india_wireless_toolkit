@@ -22,6 +22,7 @@ import sys
 import argparse
 
 from . import data_visualization, spectrum_simulation, infra_economics, news_scraper, report_generator, agent
+from .logging_config import setup_logging
 
 COMMANDS = {
     "charts": data_visualization.main,
@@ -49,17 +50,19 @@ def main():
     )
     # Remaining args are passed through to the individual module's own argparse
     args, remaining = parser.parse_known_args()
-    sys.argv = [sys.argv[0]] + remaining  # let sub-module argparse see only its own flags
+    setup_logging(cli=True)
 
     if args.command == "all":
         for name in _ALL_COMMANDS:
             print(f"\n{'=' * 60}\nRunning: {name}\n{'=' * 60}")
             try:
-                COMMANDS[name]()
+                COMMANDS[name](remaining)
+            except SystemExit:
+                raise
             except Exception as e:
-                print(f"[{name}] skipped/failed: {e}")
+                print(f"[{name}] skipped/failed: {type(e).__name__}: {e}")
     else:
-        COMMANDS[args.command]()
+        COMMANDS[args.command](remaining)
 
 
 if __name__ == "__main__":

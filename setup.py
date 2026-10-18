@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="india-wireless-toolkit",
-    version="2.0.0",
+    version="2.1.0",
     description="Scripts covering current issues in India's wireless/telecom sector",
     packages=find_packages(),
     install_requires=[
@@ -18,11 +18,16 @@ setup(
         "blacksheep>=2.0",
         "uvicorn>=0.27",
     ],
+    extras_require={
+        "agent": ["anthropic>=0.40"],
+        "azure": ["azure-monitor-opentelemetry>=1.6"],
+        "dev": ["pytest>=8.0"],
+    },
     entry_points={
         "console_scripts": [
             "india-wireless-toolkit=india_wireless_toolkit.cli:main",
         ],
     },
-    python_requires=">=3.8",
+    python_requires=">=3.9",
     include_package_data=True,
 )

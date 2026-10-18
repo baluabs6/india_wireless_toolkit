@@ -6,6 +6,10 @@ spectrum simulation, and infra economics. Kept separate from the
 Blacksheep news/report service so each can be scaled/deployed
 independently (e.g. as two Azure Web Apps for Containers).
 
+Security: every route except /health requires the X-API-Key header when
+API_KEY is set (see security.py), and callers are rate limited per route.
+All query parameters are bounded, so a request's cost is predictable.
+
 Run locally:
     python -m india_wireless_toolkit.services.sanic_api.app
     # or
@@ -13,111 +17,125 @@ Run locally:
 """
 
 import os
-import math
 import asyncio
 from functools import partial
 
 from sanic import Sanic
 from sanic.response import json as json_response, file as file_response
-from sanic.exceptions import NotFound, InvalidUsage
+from sanic.exceptions import NotFound, BadRequest, ServiceUnavailable
 
+from india_wireless_toolkit import __version__
 from india_wireless_toolkit import data_visualization as dv
 from india_wireless_toolkit import spectrum_simulation as spec
 from india_wireless_toolkit import infra_economics as infra
+from india_wireless_toolkit import _plotting
 from india_wireless_toolkit.config_loader import CONFIG
+from india_wireless_toolkit.logging_config import setup_logging
+from india_wireless_toolkit.security import RequestGuard, parse_bounded_int
+
+setup_logging()
 
 app = Sanic("india-wireless-analytics-api")
 
-_PATHS = CONFIG.get("paths", {})
-CHARTS_DIR = os.path.abspath(_PATHS.get("charts_dir", "charts"))
+CHARTS_DIR = dv.OUT_DIR
+_guard = RequestGuard(rate_overrides=CONFIG.get("api", {}).get("rate_limits"))
 
-_ALLOWED_CHARTS = {
-    "broadband_split": dv.chart_broadband_split,
-    "teledensity_gap": dv.chart_teledensity_gap,
-    "6ghz_split": dv.chart_6ghz_split,
-    "public_wifi_gap": dv.chart_public_wifi_gap,
-    "subscriber_trend": dv.chart_subscriber_trend,
-}
+
+@app.on_request
+async def security_middleware(request):
+    """API-key auth + rate limiting for every route except /health."""
+    blocked = _guard.evaluate(
+        request.method, request.path,
+        request.headers.get("x-api-key"), request.headers.get("x-forwarded-for"), request.ip,
+    )
+    if blocked:
+        status, body, headers = blocked
+        return json_response(body, status=status, headers=headers)
 
 
 async def _run_blocking(func, *args, **kwargs):
-    """Offload CPU-bound toolkit calls to a worker thread so they don't
-    block Sanic's event loop."""
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, partial(func, *args, **kwargs))
+    """Offload CPU-bound / blocking toolkit calls to a worker thread so they
+    don't block Sanic's event loop."""
+    return await asyncio.to_thread(partial(func, *args, **kwargs))
 
 
 def _bounded_int(request, name: str, default: int, lo: int, hi: int) -> int:
-    """Parses an integer query param and clamps it to [lo, hi]. The
-    Monte Carlo simulation and channel-capacity endpoints are CPU-bound
-    (O(n_aps^2 * n_trials)) and unauthenticated, so unbounded values from
-    a caller-supplied query string are a resource-exhaustion (DoS) risk —
-    this keeps every request's cost predictable regardless of input."""
+    """Parse an integer query param and clamp it to [lo, hi]. The Monte Carlo
+    endpoints are CPU-bound (O(n_aps^2 * n_trials)), so unbounded values would
+    be a resource-exhaustion risk; non-integers are rejected with a 400."""
     raw = request.args.get(name)
     if raw is None:
         return default
     try:
-        value = int(raw)
+        int(raw)
     except (TypeError, ValueError):
-        raise InvalidUsage(f"'{name}' must be an integer.")
-    return max(lo, min(hi, value))
+        raise BadRequest(f"'{name}' must be an integer.")
+    return parse_bounded_int(raw, default, lo, hi)
+
+
+def _infra_params(request):
+    """Infra scenario from query parameters (n_isps, years, discount_rate, ...);
+    omitted parameters keep their config.yaml defaults. Values are clamped."""
+    try:
+        return infra.params_from_mapping({k: request.args.get(k) for k in infra.PARAM_SPECS})
+    except ValueError as e:
+        raise BadRequest(str(e))
 
 
 @app.get("/health")
 async def health(request):
-    return json_response({"status": "ok", "service": "sanic-analytics-api"})
+    return json_response({"status": "ok", "service": "sanic-analytics-api", "version": __version__})
 
 
 # --- Charts -------------------------------------------------------------
 
 @app.get("/charts")
 async def list_charts(request):
-    return json_response({"available": sorted(_ALLOWED_CHARTS.keys())})
+    return json_response({"available": sorted(dv.CHART_BUILDERS)})
 
 
 @app.get("/charts/<name:str>")
 async def get_chart(request, name: str):
-    if name not in _ALLOWED_CHARTS:
+    if name not in dv.CHART_BUILDERS:
         raise NotFound(f"Unknown chart '{name}'. See GET /charts for valid names.")
-    await _run_blocking(_ALLOWED_CHARTS[name])
-    chart_path = os.path.join(CHARTS_DIR, f"{name}.png")
-    if not os.path.exists(chart_path):
-        raise NotFound("Chart was generated but the file could not be found.")
+    chart_path = await _run_blocking(dv.ensure_chart, name)   # rebuilt only when inputs changed
     return await file_response(chart_path, mime_type="image/png")
 
 
 @app.get("/charts/dashboard")
 async def dashboard(request):
     out_path = os.path.join(CHARTS_DIR, "dashboard.html")
-    await _run_blocking(dv.build_interactive_dashboard, out_path)
+    try:
+        if _plotting.needs_refresh(out_path, dv._SELF, dv._data_path("subscriber_trends.csv")):
+            await _run_blocking(dv.build_interactive_dashboard, out_path)
+    except RuntimeError as e:                      # plotly missing
+        raise ServiceUnavailable(str(e))
     return await file_response(out_path, mime_type="text/html")
-
-
-_ALLOWED_MAP_METRICS = {"urban_teledensity_pct", "rural_teledensity_pct", "coverage_5g_pct"}
 
 
 @app.get("/charts/map")
 async def state_map(request):
     metric = request.args.get("metric", "coverage_5g_pct")
-    if metric not in _ALLOWED_MAP_METRICS:
-        raise InvalidUsage(f"Unknown metric '{metric}'. Valid options: {sorted(_ALLOWED_MAP_METRICS)}.")
-    out_path = os.path.join(CHARTS_DIR, "state_map.html")
-    await _run_blocking(dv.build_state_bubble_map, out_path, metric)
+    if metric not in dv.MAP_METRICS:
+        raise BadRequest(f"'metric' must be one of {list(dv.MAP_METRICS)}.")
+    out_path = os.path.join(CHARTS_DIR, f"state_bubble_map_{metric}.html")
+    try:
+        if _plotting.needs_refresh(out_path, dv._SELF, dv._data_path("state_teledensity.csv")):
+            await _run_blocking(dv.build_state_bubble_map, out_path, metric)
+    except RuntimeError as e:
+        raise ServiceUnavailable(str(e))
     return await file_response(out_path, mime_type="text/html")
 
 
-# --- Spectrum simulation --------------------------------------------------
+# --- Spectrum simulation ------------------------------------------------
 
-@app.get("/spectrum/scenarios")
-async def spectrum_scenarios(request):
-    india = spec.SpectrumScenario("India (current, Jan 2026 gazette)", 500)
-    us = spec.SpectrumScenario("US (full band delicensed)", 1200)
+@app.get("/spectrum/capacity")
+async def spectrum_capacity(request):
     result = {}
-    for scenario in (india, us):
-        rows = await _run_blocking(spec.simulate_scenario, scenario)
+    for scenario in spec.default_scenarios():
         result[scenario.name] = [
             {"channel_width_mhz": w, "channels": n, "aggregate_phy_mbps": mbps}
-            for w, n, mbps in rows
+            for w, n, mbps in spec.scenario_capacity(scenario)
         ]
     return json_response(result)
 
@@ -127,26 +145,15 @@ async def spectrum_sinr(request):
     try:
         tx_power = float(request.args.get("tx_power_dbm", 20.0))
     except (TypeError, ValueError):
-        raise InvalidUsage("'tx_power_dbm' must be a number.")
-    tx_power = max(-10.0, min(40.0, tx_power))  # realistic Wi-Fi tx-power range
-    distances = [2, 5, 10, 15, 20, 30]
-    rows = []
-    for d in distances:
-        walls = max(0, int(d // 8))
-        sinr = spec.estimate_sinr_db(tx_power, d, wall_count=walls)
-        quality = (
-            "Excellent" if sinr > 30 else
-            "Good" if sinr > 20 else
-            "Fair" if sinr > 10 else
-            "Poor"
-        )
-        rows.append({"distance_m": d, "walls": walls, "sinr_db": round(sinr, 1), "quality": quality})
-    return json_response({"tx_power_dbm": tx_power, "results": rows})
+        raise BadRequest("'tx_power_dbm' must be a number.")
+    tx_power = max(-10.0, min(40.0, tx_power))      # realistic Wi-Fi tx-power range
+    return json_response({"tx_power_dbm": tx_power,
+                          "results": spec.sinr_vs_distance_rows(tx_power_dbm=tx_power)})
 
 
 @app.get("/spectrum/montecarlo")
 async def spectrum_montecarlo(request):
-    mhz = _bounded_int(request, "mhz", 500, 20, 2000)
+    mhz = _bounded_int(request, "mhz", spec.INDIA_DELICENSED_MHZ, 20, 2000)
     aps = _bounded_int(request, "aps", 20, 1, 100)
     trials = _bounded_int(request, "trials", 300, 1, 2000)
     result = await _run_blocking(spec.monte_carlo_ap_simulation, mhz, n_aps=aps, n_trials=trials)
@@ -155,79 +162,79 @@ async def spectrum_montecarlo(request):
 
 @app.get("/spectrum/thz")
 async def spectrum_thz(request):
-    freq_range = (100, 300)
-    distances = (1, 5, 10, 20)
-    rows = []
-    for freq in freq_range:
-        for d in distances:
-            pl = spec.log_distance_path_loss_db(d, freq_ghz=freq, path_loss_exponent=2.5, wall_count=0)
-            atmospheric_loss_db = 0.05 * freq * d
-            rows.append({
-                "freq_ghz": freq, "distance_m": d,
-                "free_space_path_loss_db": round(pl, 1),
-                "atmospheric_loss_db": round(atmospheric_loss_db, 1),
-                "total_path_loss_db": round(pl + atmospheric_loss_db, 1),
-            })
-    return json_response({"freq_range_ghz": freq_range, "results": rows})
+    rows = [
+        {"freq_ghz": r["freq_ghz"], "distance_m": r["distance_m"],
+         "free_space_path_loss_db": r["path_loss_db"],
+         "atmospheric_loss_db": r["atmospheric_loss_db"],
+         "total_path_loss_db": r["total_path_loss_db"]}
+        for r in spec.thz_path_loss_rows()
+    ]
+    return json_response({"freq_range_ghz": list(spec.THZ_FREQ_RANGE_GHZ), "results": rows,
+                          "takeaway": spec.THZ_TAKEAWAY})
 
 
 @app.get("/spectrum/whatif")
 async def spectrum_whatif(request):
     mhz = _bounded_int(request, "mhz", 800, 20, 2000)
     aps = _bounded_int(request, "aps", 20, 1, 100)
-    scenario = spec.SpectrumScenario(f"What-if: {mhz} MHz delicensed", mhz)
-    capacity_rows = await _run_blocking(spec.simulate_scenario, scenario)
-    monte_carlo = await _run_blocking(spec.monte_carlo_ap_simulation, mhz, n_aps=aps, n_trials=200)
+    result = await _run_blocking(spec.what_if_analysis, mhz, aps)
     return json_response({
         "scenario_mhz": mhz,
         "aps_per_building": aps,
         "capacity": [
             {"channel_width_mhz": w, "channels": n, "aggregate_phy_mbps": m}
-            for w, n, m in capacity_rows
+            for w, n, m in result["capacity_rows"]
         ],
-        "monte_carlo": monte_carlo,
+        "dense_reuse_factor": result["dense_reuse_factor"],
+        "monte_carlo": result["monte_carlo"],
     })
 
 
 # --- Infra economics -------------------------------------------------------
+# All endpoints accept the scenario as query parameters, e.g.
+#   /infra/npv?n_isps=3&discount_rate=0.12&years=10
+# (see infra_economics.PARAM_SPECS for the names and allowed ranges).
 
 @app.get("/infra/summary")
 async def infra_summary(request):
-    result = await _run_blocking(infra.summary_report)
+    result = await _run_blocking(infra.summary_report, _infra_params(request))
     return json_response(result)
 
 
 @app.get("/infra/npv")
 async def infra_npv(request):
-    p = infra.Params()
-    project_npv, project_irr = await _run_blocking(infra.npv_irr_report, p)
+    p = _infra_params(request)
+    result = await _run_blocking(infra.npv_irr_analysis, p)
     return json_response({
         "discount_rate": p.discount_rate,
-        "npv_inr": project_npv,
-        "irr": project_irr,
-        "verdict": "financially attractive" if project_npv > 0 else "not attractive at this discount rate",
+        "npv_inr": result["npv_inr"],
+        "irr": result["irr"],
+        "cashflows_inr": result["cashflows"],
+        "includes_terminal_value": result["includes_terminal_value"],
+        "verdict": result["verdict"],
     })
 
 
 @app.get("/infra/sensitivity")
 async def infra_sensitivity(request):
-    p = infra.Params()
-    results, base_cost = await _run_blocking(infra.sensitivity_analysis, p)
-    return json_response({"base_cost_inr": base_cost, "results": results})
+    metric = request.args.get("metric", "savings")
+    if metric not in infra.SENSITIVITY_METRICS:
+        raise BadRequest(f"'metric' must be one of {sorted(infra.SENSITIVITY_METRICS)}.")
+    p = _infra_params(request)
+    results, base = await _run_blocking(infra.sensitivity_analysis, p, None, metric)
+    return json_response({"metric": metric, "base_value_inr": base, "base_cost_inr": base, "results": results})
 
 
 @app.get("/infra/compare")
 async def infra_compare(request):
-    p = infra.Params()
-    result = await _run_blocking(infra.three_way_comparison, p)
+    result = await _run_blocking(infra.three_way_comparison_data, _infra_params(request))
     return json_response(result)
 
 
 @app.get("/infra/breakeven")
 async def infra_breakeven(request):
-    p = infra.Params()
-    breakeven = await _run_blocking(infra.breakeven_report, p)
-    return json_response({"breakeven_n_isps": breakeven})
+    result = await _run_blocking(infra.breakeven_analysis, _infra_params(request))
+    return json_response(result)
 
 
 if __name__ == "__main__":

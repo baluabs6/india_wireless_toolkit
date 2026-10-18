@@ -16,3 +16,7 @@ uvicorn>=0.27
 # needed if you use `cli.py agent` or POST /agent/ask. Also requires an
 # ANTHROPIC_API_KEY environment variable at runtime.
 anthropic>=0.40
+
+# Optional: export logs/requests to Azure Application Insights when
+# APPLICATIONINSIGHTS_CONNECTION_STRING is set (the Bicep template sets it).
+# azure-monitor-opentelemetry>=1.6

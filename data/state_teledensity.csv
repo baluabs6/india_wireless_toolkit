@@ -1,5 +1,5 @@
 state,region,urban_teledensity_pct,rural_teledensity_pct,coverage_5g_pct,lat,lon
-Delhi,North,178.4,0,99.9,28.7041,77.1025
+Delhi,North,178.4,,99.9,28.7041,77.1025
 Maharashtra,West,158.2,64.1,98.7,19.7515,75.7139
 Karnataka,South,161.9,58.3,97.9,15.3173,75.7139
 Tamil Nadu,South,149.7,62.5,96.4,11.1271,78.6569

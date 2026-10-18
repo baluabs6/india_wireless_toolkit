@@ -26,3 +26,8 @@ reports/
 .DS_Store
 .vscode/
 .idea/
+
+*.tmp
+*.tmp.png
+var/
+.pytest_cache/

@@ -11,6 +11,8 @@ Modules:
     infra_economics     -- duplicate vs shared cost model, NPV/IRR, sensitivity, breakeven
     news_scraper        -- TRAI/DoT/PIB scraper, SQLite archive, RSS, alerts, trends
     report_generator    -- combines everything into one HTML report
+    agent               -- Claude tool-use research assistant over the modules above
+    security            -- SSRF-safe fetching, API-key auth, rate limiting
     db                  -- Redis caching layer (graceful fallback if unavailable)
     config_loader       -- loads config.yaml
 """
@@ -22,8 +24,9 @@ from . import news_scraper
 from . import report_generator
 from . import db
 from . import config_loader
+from . import security
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 __all__ = [
     "data_visualization",
     "spectrum_simulation",
@@ -32,4 +35,5 @@ __all__ = [
     "report_generator",
     "db",
     "config_loader",
+    "security",
 ]

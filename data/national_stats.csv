@@ -1,0 +1,8 @@
+key,value,unit,as_of,source
+wireless_broadband_millions,1026.60,millions,Apr 2026,bundled illustrative dataset (unverified - check against the TRAI monthly report before citing)
+wireline_broadband_millions,46.84,millions,Apr 2026,bundled illustrative dataset (unverified)
+urban_teledensity_pct,152.11,percent,Apr 2026,bundled illustrative dataset (unverified)
+rural_teledensity_pct,60.74,percent,Apr 2026,bundled illustrative dataset (unverified)
+national_teledensity_pct,90.28,percent,Apr 2026,bundled illustrative dataset (unverified)
+pm_wani_hotspots_millions,0.4,millions,2026,bundled illustrative dataset (unverified)
+bharat_6g_hotspot_target_millions,50,millions,2030,bundled illustrative target (unverified)

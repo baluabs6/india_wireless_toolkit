@@ -47,9 +47,54 @@ resource limits and restart cycles.
   fixed tool allowlist (no arbitrary code execution), clamped numeric
   arguments, and a hard cap on tool-call turns per question.
 
-Both APIs ship with bundled dummy datasets, so every endpoint works fully
-offline out of the box — useful in network-restricted environments where
+Both APIs ship with bundled sample datasets (news items are labelled `origin: sample`), so every
+endpoint works fully offline out of the box — useful in network-restricted environments where
 live scraping or external APIs aren't reachable.
+
+## What changed in v2.1
+
+v2.1 is a correctness, security and reliability release. **Numbers produced by v2.0 will differ** - see
+[CHANGELOG.md](CHANGELOG.md) for every fix and why the results moved. In short:
+
+- **Spectrum model fixed.** Path loss was referenced to 108 dB at 1 m (true free-space loss at 6 GHz is
+  48 dB), so every SINR was negative and 500 MHz vs 1200 MHz looked identical. India's 500 MHz now averages
+  ~7 dB mean SINR in the 20-AP Monte Carlo vs ~15 dB for the US band. Channel counts follow the real 6 GHz
+  band plan (24/12/6/3/1 channels in 500 MHz) and PHY rates are derived from tone plans. THz absorption is
+  now a per-band table in dB/km instead of 15 dB per metre.
+- **Economics fixed.** Lease fees are no longer double-counted on top of the capex they repay, the neutral
+  operator's opex is included, the NPV includes ramp-up and residual fibre value, and the sensitivity
+  analysis no longer has dead variables (it reports several metrics). Break-even now also requires the
+  neutral operator to be viable (NPV >= 0).
+- **News pipeline.** Real publication dates, URL-canonical dedup, whole-word keyword matching, `origin`
+  labels (`live` / `rss` / `sample`) so demo data can never pass as real news, and alerts that are sent
+  once (`alerted_at`). Existing archives are migrated automatically on first open.
+- **Security.** Optional API-key auth + per-route rate limits on both APIs, DNS-aware SSRF protection for
+  every outbound fetch, HTML-escaped reports, bounded query parameters, a non-root container, and secrets
+  via Key Vault in Azure.
+- **Agent.** Tools accept scenario parameters, answers cut off by the token limit are flagged, the turn
+  limit yields a summary instead of an error, and every figure carries a `[tool#n]` source reference.
+
+### API authentication and scenario parameters
+
+```bash
+export API_KEY=...                      # server side; see .env.example (API_REQUIRE_KEY=true to fail closed)
+curl -H "X-API-Key: $API_KEY" "http://localhost:8001/infra/npv?n_isps=3&discount_rate=0.12&years=10"
+curl -H "X-API-Key: $API_KEY" "http://localhost:8001/infra/sensitivity?metric=neutral_npv"
+curl -H "X-API-Key: $API_KEY" "http://localhost:8002/news/archive?limit=20&include_sample=false"
+```
+
+Every `/infra/*` route accepts `n_isps, n_buildings, years, discount_rate, fibre_capex_per_building_inr,
+fwa_capex_per_building_inr, satellite_capex_per_building_inr, neutral_access_fee_per_building_per_year_inr,
+opex_per_building_per_year_inr` (clamped to safe ranges). `/health` is always open.
+
+### Running the tests
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest -q
+```
+
+The Sanic/Blacksheep smoke tests are skipped when those frameworks are not installed.
 
 ## About the Stack of the Application
 

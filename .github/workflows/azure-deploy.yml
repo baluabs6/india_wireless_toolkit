@@ -1,10 +1,12 @@
-name: Build and deploy to Azure
+name: Test, build and deploy to Azure
 
-# Builds both service images, pushes them to Azure Container Registry, and
-# restarts the two Azure Web Apps for Containers so they pull the new
-# images. Infrastructure itself (azure/main.bicep) is applied separately /
-# manually via `az deployment group create` — this workflow only handles
-# app code changes.
+# 1. `test`   - runs on every push and pull request: unit tests + secret scan.
+# 2. `deploy` - runs only for pushes to main (or a manual run) AFTER `test` passes. It builds both
+#    images, pushes them tagged with the commit SHA, points each Web App at that exact image,
+#    waits for /health, and rolls back to the previous image if the new one is not healthy.
+#
+# Infrastructure itself (azure/main.bicep) is applied separately via azure/deploy.sh or
+# `az deployment group create` - this workflow only handles application code changes.
 #
 # Required repo secrets:
 #   AZURE_CREDENTIALS   - output of:
@@ -17,11 +19,47 @@ name: Build and deploy to Azure
 on:
   push:
     branches: [main]
+  pull_request: {}
   workflow_dispatch: {}
 
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  build-and-deploy:
+  test:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Unit tests
+        run: python -m pytest -q
+
+      - name: Secret scan
+        run: |
+          pip install pre-commit
+          pre-commit run detect-secrets --all-files
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      RG: ${{ secrets.AZURE_RESOURCE_GROUP }}
+      PREFIX: ${{ secrets.AZURE_APP_PREFIX }}
+      REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}
+      TAG: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
 
@@ -31,25 +69,40 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: ACR login
-        run: az acr login --name "$(echo '${{ secrets.ACR_LOGIN_SERVER }}' | cut -d. -f1)"
+        run: az acr login --name "${REGISTRY%%.*}"
 
-      - name: Build and push analytics-api (Sanic)
+      - name: Build and push images (tagged with the commit SHA)
         run: |
-          docker build -f Dockerfile.sanic -t "${{ secrets.ACR_LOGIN_SERVER }}/india-wireless-analytics-api:${{ github.sha }}" \
-                       -t "${{ secrets.ACR_LOGIN_SERVER }}/india-wireless-analytics-api:latest" .
-          docker push "${{ secrets.ACR_LOGIN_SERVER }}/india-wireless-analytics-api:${{ github.sha }}"
-          docker push "${{ secrets.ACR_LOGIN_SERVER }}/india-wireless-analytics-api:latest"
+          set -euo pipefail
+          build_push() {  # dockerfile image
+            docker build -f "$1" -t "$REGISTRY/$2:$TAG" -t "$REGISTRY/$2:latest" .
+            docker push "$REGISTRY/$2:$TAG"
+            docker push "$REGISTRY/$2:latest"
+          }
+          build_push Dockerfile.sanic india-wireless-analytics-api
+          build_push Dockerfile.blacksheep india-wireless-news-api
 
-      - name: Build and push news-api (Blacksheep)
+      - name: Deploy, verify /health, roll back on failure
         run: |
-          docker build -f Dockerfile.blacksheep -t "${{ secrets.ACR_LOGIN_SERVER }}/india-wireless-news-api:${{ github.sha }}" \
-                       -t "${{ secrets.ACR_LOGIN_SERVER }}/india-wireless-news-api:latest" .
-          docker push "${{ secrets.ACR_LOGIN_SERVER }}/india-wireless-news-api:${{ github.sha }}"
-          docker push "${{ secrets.ACR_LOGIN_SERVER }}/india-wireless-news-api:latest"
-
-      - name: Restart Web Apps to pick up new images
-        run: |
-          az webapp restart --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            --name "${{ secrets.AZURE_APP_PREFIX }}-analytics-api"
-          az webapp restart --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            --name "${{ secrets.AZURE_APP_PREFIX }}-news-api"
+          set -euo pipefail
+          deploy_and_verify() {  # app-name image
+            local app="$1" image="$2" previous host
+            previous=$(az webapp config show -g "$RG" -n "$app" --query linuxFxVersion -o tsv)
+            host=$(az webapp show -g "$RG" -n "$app" --query defaultHostName -o tsv)
+            echo "$app: $previous -> DOCKER|$REGISTRY/$image:$TAG"
+            az webapp config set -g "$RG" -n "$app" --linux-fx-version "DOCKER|$REGISTRY/$image:$TAG" --output none
+            az webapp restart -g "$RG" -n "$app" --output none
+            for attempt in $(seq 1 30); do
+              if curl -fsS --max-time 10 "https://$host/health" > /dev/null 2>&1; then
+                echo "  healthy after $attempt check(s)"
+                return 0
+              fi
+              sleep 10
+            done
+            echo "::error::$app did not become healthy - rolling back to $previous"
+            az webapp config set -g "$RG" -n "$app" --linux-fx-version "$previous" --output none
+            az webapp restart -g "$RG" -n "$app" --output none
+            return 1
+          }
+          deploy_and_verify "$PREFIX-analytics-api" india-wireless-analytics-api
+          deploy_and_verify "$PREFIX-news-api" india-wireless-news-api

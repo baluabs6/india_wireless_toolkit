@@ -8,3 +8,7 @@ reports/
 azure/
 .github/
 .env
+.pytest_cache/
+tests/
+var/
+*.tmp

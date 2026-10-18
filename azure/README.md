@@ -29,7 +29,8 @@ RESOURCE_GROUP=india-wireless-rg APP_PREFIX=iwtoolkit LOCATION=centralindia \
 ```
 
 This creates the resource group (if needed), applies `main.bicep`, builds
-both Docker images, pushes them to the new ACR, and restarts the Web Apps.
+both Docker images, pushes them to the new ACR tagged with the commit SHA, points the Web Apps at
+them, waits for `/health`, and rolls back if a Web App does not come up healthy.
 Re-running it is safe — it picks up code changes and redeploys.
 
 ## Option B: step by step
@@ -40,7 +41,7 @@ az group create --name india-wireless-rg --location centralindia
 az deployment group create \
   --resource-group india-wireless-rg \
   --template-file azure/main.bicep \
-  --parameters appNamePrefix=iwtoolkit
+  --parameters appNamePrefix=iwtoolkit apiKey="$API_KEY"
 
 # 2. Build & push images
 ACR=$(az acr list --resource-group india-wireless-rg --query "[0].loginServer" -o tsv)
@@ -75,8 +76,10 @@ These map to the same env vars `config_loader.py` reads locally via
 
 ## CI/CD (GitHub Actions)
 
-`.github/workflows/azure-deploy.yml` rebuilds and redeploys both images on
-every push to `main`. It needs these repo secrets:
+`.github/workflows/azure-deploy.yml` runs the unit tests and a secret scan on every push and pull
+request. On pushes to `main` (after the tests pass) it builds both images tagged with the commit
+SHA, points each Web App at that exact image, waits for `/health`, and **rolls back to the previous
+image automatically** if the new one does not become healthy. It needs these repo secrets:
 
 | Secret | How to get it |
 |---|---|
@@ -89,11 +92,35 @@ The workflow only builds/pushes app code — it doesn't re-run the Bicep
 deployment, so infrastructure changes still go through `deploy.sh` or
 Option B above.
 
+## Security and observability (v2.1)
+
+- **API key.** `main.bicep` takes a required `apiKey` parameter, stores it in Key Vault, and sets
+  `API_REQUIRE_KEY=true`, so every route except `/health` needs the header `X-API-Key: <key>`.
+  Rotate by adding the new key to the secret as `new,old`, then removing the old one later.
+- **No plain-text secrets.** The Redis key and API key reach the apps through Key Vault references
+  (`@Microsoft.KeyVault(...)`) using each app's managed identity. Images are pulled from ACR with
+  managed identity too - the ACR admin user is disabled. **After the first deployment restart both
+  apps once** so the Key Vault references resolve (`deploy.sh` does this).
+- **Immutable images.** Deploy by commit SHA (`deploy.sh` and CI do). `imageTag` defaults to
+  `latest` only so the very first bootstrap has something to point at.
+- **Health and rollback.** App Service probes `/health`; `deploy.sh` and the CI job also check it
+  and roll back on failure.
+- **Telemetry.** Application Insights is provisioned and wired through
+  `APPLICATIONINSIGHTS_CONNECTION_STRING`. To export logs and request traces, add
+  `azure-monitor-opentelemetry` to `requirements.txt` (it is optional and commented out there).
+- **Rate limits are per process.** With several instances each enforces its own window; put Azure
+  Front Door or API Management in front for a global limit.
+- **Validate the template** before the first deployment: `az bicep build --file azure/main.bicep`
+  and `az deployment group what-if ...`. The v2.1 changes to it were written without access to the
+  Bicep compiler.
+
 ## Verify
 
 ```bash
 curl https://iwtoolkit-analytics-api.azurewebsites.net/health
 curl https://iwtoolkit-news-api.azurewebsites.net/health
+# protected routes need the API key:
+curl -H "X-API-Key: $API_KEY" "https://iwtoolkit-analytics-api.azurewebsites.net/infra/npv?n_isps=3&discount_rate=0.12"
 ```
 
 ## Local development
